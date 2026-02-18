@@ -44,6 +44,24 @@ export type CollaboratorInfo = {
   email: string;
 };
 
+export const priceTypeSchema = z.enum([
+  "vast",
+  "bieden",
+  "zie_omschrijving",
+  "gratis",
+]);
+export type PriceType = z.infer<typeof priceTypeSchema>;
+
+export const itemPhotoSchema = z.object({
+  id: z.string().uuid(),
+  item_id: z.string().uuid(),
+  photo_url: z.string(),
+  sort_order: z.number(),
+  created_at: z.string(),
+});
+export type ItemPhoto = z.infer<typeof itemPhotoSchema>;
+export type NewItemPhoto = Omit<ItemPhoto, "id" | "created_at">;
+
 export const itemSchema = z.object({
   id: z.string().uuid(),
   box_id: z.string().uuid(),
@@ -56,6 +74,12 @@ export const itemSchema = z.object({
   value: z.number().nullable().optional(),
   for_sale: z.boolean().nullable().optional(),
   ad_description: z.string().nullable().optional(),
+  marktplaats_category_id: z.string().nullable().optional(),
+  marktplaats_category_name: z.string().nullable().optional(),
+  price_type: priceTypeSchema.nullable().optional(),
+  bid_from: z.number().nullable().optional(),
+  delivery_pickup: z.boolean().nullable().optional(),
+  delivery_shipping: z.boolean().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -97,6 +121,11 @@ export interface Database {
         Row: Item;
         Insert: NewItem;
         Update: Partial<NewItem>;
+      };
+      item_photos: {
+        Row: ItemPhoto;
+        Insert: NewItemPhoto;
+        Update: Partial<NewItemPhoto>;
       };
     };
     Views: Record<string, never>;

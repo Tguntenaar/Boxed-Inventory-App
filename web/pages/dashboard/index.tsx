@@ -34,6 +34,7 @@ import {
   getItemsByBox,
   getItemsForSale,
 } from "@/supabase/queries/items";
+import { getPhotosByItemIds } from "@/supabase/queries/itemPhotos";
 import { searchItems } from "@/supabase/queries/search";
 import type { Box, Item } from "@/supabase/types";
 import { Search, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
@@ -167,11 +168,13 @@ export default function Dashboard() {
     try {
       const allBoxes = await getBoxesByOwner(userId);
       const rows: Record<string, any>[] = [];
+      const allItemIds: string[] = [];
 
       for (const bx of allBoxes) {
         const items = await getItemsByBox(bx.id);
         if (items.length) {
-          items.forEach((it) =>
+          items.forEach((it) => {
+            allItemIds.push(it.id);
             rows.push({
               box_id: bx.id,
               box_name: bx.name,
@@ -184,9 +187,14 @@ export default function Dashboard() {
               item_condition: it.condition ?? "",
               item_for_sale: it.for_sale ?? false,
               item_ad_description: it.ad_description ?? "",
+              item_marktplaats_category: it.marktplaats_category_name ?? "",
+              item_price_type: it.price_type ?? "",
+              item_bid_from: it.bid_from ?? "",
+              item_delivery_pickup: it.delivery_pickup ?? false,
+              item_delivery_shipping: it.delivery_shipping ?? false,
               item_photo_url: it.photo_url ?? "",
-            }),
-          );
+            });
+          });
         } else {
           rows.push({
             box_id: bx.id,
@@ -200,8 +208,29 @@ export default function Dashboard() {
             item_condition: "",
             item_for_sale: "",
             item_ad_description: "",
+            item_marktplaats_category: "",
+            item_price_type: "",
+            item_bid_from: "",
+            item_delivery_pickup: "",
+            item_delivery_shipping: "",
             item_photo_url: "",
           });
+        }
+      }
+
+      const allPhotos = await getPhotosByItemIds(allItemIds);
+      const photosByItem = new Map<string, string[]>();
+      for (const p of allPhotos) {
+        const arr = photosByItem.get(p.item_id) ?? [];
+        arr.push(p.photo_url);
+        photosByItem.set(p.item_id, arr);
+      }
+      for (const r of rows) {
+        if (r.item_id) {
+          const urls = photosByItem.get(r.item_id);
+          r.item_photo_urls = urls?.length ? urls.join("; ") : r.item_photo_url ?? "";
+        } else {
+          r.item_photo_urls = "";
         }
       }
 
@@ -217,7 +246,13 @@ export default function Dashboard() {
         "item_condition",
         "item_for_sale",
         "item_ad_description",
+        "item_marktplaats_category",
+        "item_price_type",
+        "item_bid_from",
+        "item_delivery_pickup",
+        "item_delivery_shipping",
         "item_photo_url",
+        "item_photo_urls",
       ];
       const csv = [
         header.join(","),
@@ -250,23 +285,46 @@ export default function Dashboard() {
       const boxIds = accessibleBoxes.map((b) => b.id);
       const items = await getItemsForSale(boxIds);
       const boxMap = new Map(accessibleBoxes.map((b) => [b.id, b]));
+      const allPhotos = await getPhotosByItemIds(items.map((i) => i.id));
+      const photosByItem = new Map<string, string[]>();
+      for (const p of allPhotos) {
+        const arr = photosByItem.get(p.item_id) ?? [];
+        arr.push(p.photo_url);
+        photosByItem.set(p.item_id, arr);
+      }
 
       const header = [
         "title",
         "description",
+        "price_type",
         "price",
+        "bid_from",
         "condition",
-        "photo_url",
+        "category",
+        "delivery_pickup",
+        "delivery_shipping",
+        "photo_urls",
         "box_name",
       ];
-      const rows = items.map((it) => ({
-        title: it.name,
-        description: it.ad_description ?? "",
-        price: it.value ?? "",
-        condition: it.condition ?? "",
-        photo_url: it.photo_url ?? "",
-        box_name: boxMap.get(it.box_id)?.name ?? "",
-      }));
+      const rows = items.map((it) => {
+        const urls = photosByItem.get(it.id);
+        const photoUrls = urls?.length
+          ? urls.join("; ")
+          : it.photo_url ?? "";
+        return {
+          title: it.name,
+          description: it.ad_description ?? "",
+          price_type: it.price_type ?? "vast",
+          price: it.value ?? "",
+          bid_from: it.bid_from ?? "",
+          condition: it.condition ?? "",
+          category: it.marktplaats_category_name ?? "",
+          delivery_pickup: it.delivery_pickup ?? false,
+          delivery_shipping: it.delivery_shipping ?? false,
+          photo_urls: photoUrls,
+          box_name: boxMap.get(it.box_id)?.name ?? "",
+        };
+      });
 
       const csv = [
         header.join(","),

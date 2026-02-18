@@ -4,8 +4,9 @@ import React, { useEffect, useState } from "react";
 import { useSupabaseClient } from "@supabase/auth-helpers-react";
 import { toast } from "sonner";
 import { getItemTypes, createItemType } from "@/supabase/queries/itemTypes";
-import { createItem } from "@/supabase/queries/items";
-import type { ItemType } from "@/supabase/types";
+import { createItem, updateItem } from "@/supabase/queries/items";
+import { addItemPhoto } from "@/supabase/queries/itemPhotos";
+import type { ItemType, PriceType } from "@/supabase/types";
 import {
   Card,
   CardHeader,
@@ -48,7 +49,7 @@ export default function AddItemCard({ boxId, onItemAdded }: AddItemCardProps) {
   const [open, setOpen] = useState(true);
   const [name, setName] = useState("");
   const [qty, setQty] = useState(1);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
   const [itemTypes, setItemTypes] = useState<ItemType[]>([]);
@@ -58,6 +59,11 @@ export default function AddItemCard({ boxId, onItemAdded }: AddItemCardProps) {
   const [value, setValue] = useState<string>("");
   const [condition, setCondition] = useState("");
   const [forSale, setForSale] = useState(false);
+  const [categoryName, setCategoryName] = useState("");
+  const [priceType, setPriceType] = useState<PriceType>("vast");
+  const [bidFrom, setBidFrom] = useState<string>("");
+  const [deliveryPickup, setDeliveryPickup] = useState(true);
+  const [deliveryShipping, setDeliveryShipping] = useState(false);
 
   // load existing types
   useEffect(() => {
@@ -83,46 +89,71 @@ export default function AddItemCard({ boxId, onItemAdded }: AddItemCardProps) {
 
   const handleAdd = async () => {
     if (!name.trim()) return toast.error("Item name required.");
-    let photo_url: string | undefined;
-    if (file) {
-      setUploading(true);
-      const ext = file.name.split(".").pop();
-      const fileName = `${boxId}/${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from("item-photos")
-        .upload(fileName, file);
-      if (upErr) {
-        toast.error("Upload failed.");
-        setUploading(false);
-        return;
-      }
-      photo_url = supabase.storage.from("item-photos").getPublicUrl(fileName)
-        .data.publicUrl;
-      setUploading(false);
-    }
+    if (files.length > 10) return toast.error("Max 10 photos.");
+    setUploading(true);
 
     try {
-      await createItem({
+      const item = await createItem({
         box_id: boxId,
         name: name.trim(),
         quantity: qty,
-        photo_url,
         type_id: typeId === "" ? undefined : typeId,
         value: value ? parseFloat(value) : undefined,
         condition: condition.trim() || undefined,
         for_sale: forSale,
+        marktplaats_category_name: categoryName.trim() || undefined,
+        price_type: forSale ? priceType : undefined,
+        bid_from: priceType === "bieden" && bidFrom ? parseFloat(bidFrom) : undefined,
+        delivery_pickup: forSale ? deliveryPickup : undefined,
+        delivery_shipping: forSale ? deliveryShipping : undefined,
       });
+
+      let firstPhotoUrl: string | undefined;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const ext = file.name.split(".").pop();
+        const fileName = `${boxId}/${item.id}_${Date.now()}_${i}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("item-photos")
+          .upload(fileName, file);
+        if (upErr) {
+          toast.error("Upload failed.");
+          setUploading(false);
+          return;
+        }
+        const photoUrl = supabase.storage
+          .from("item-photos")
+          .getPublicUrl(fileName).data.publicUrl;
+        await addItemPhoto({
+          item_id: item.id,
+          photo_url: photoUrl,
+          sort_order: i,
+        });
+        if (i === 0) firstPhotoUrl = photoUrl;
+      }
+
+      if (firstPhotoUrl) {
+        await updateItem(item.id, { photo_url: firstPhotoUrl });
+      }
+
       toast.success("Item added!");
       setName("");
       setQty(1);
-      setFile(null);
+      setFiles([]);
       setTypeId("");
       setValue("");
       setCondition("");
       setForSale(false);
+      setCategoryName("");
+      setPriceType("vast");
+      setBidFrom("");
+      setDeliveryPickup(true);
+      setDeliveryShipping(false);
       onItemAdded();
     } catch {
       toast.error("Failed to add item.");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -274,17 +305,130 @@ export default function AddItemCard({ boxId, onItemAdded }: AddItemCardProps) {
               </Label>
             </div>
 
-            {/* ─ Photo upload ─ */}
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
-              <ImageIcon className="text-primary" />
-              {file ? file.name : "Upload photo (optional)"}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-              />
-            </label>
+            {forSale && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-sm">Marktplaats categorie</Label>
+                  <Input
+                    placeholder="e.g. Antiek | Bestek"
+                    value={categoryName}
+                    onChange={(e) => setCategoryName(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-sm">Prijs type</Label>
+                    <Select
+                      value={priceType}
+                      onValueChange={(v) => setPriceType(v as PriceType)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="vast">Vaste prijs</SelectItem>
+                        <SelectItem value="bieden">Bieden</SelectItem>
+                        <SelectItem value="zie_omschrijving">
+                          Zie omschrijving
+                        </SelectItem>
+                        <SelectItem value="gratis">Gratis</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {priceType === "bieden" && (
+                    <div className="space-y-2">
+                      <Label className="text-sm">Bieden vanaf (€)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={bidFrom}
+                        onChange={(e) => setBidFrom(e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="delivery-pickup-add"
+                      checked={deliveryPickup}
+                      onChange={(e) => setDeliveryPickup(e.target.checked)}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Label
+                      htmlFor="delivery-pickup-add"
+                      className="cursor-pointer text-sm"
+                    >
+                      Ophalen
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="delivery-shipping-add"
+                      checked={deliveryShipping}
+                      onChange={(e) => setDeliveryShipping(e.target.checked)}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Label
+                      htmlFor="delivery-shipping-add"
+                      className="cursor-pointer text-sm"
+                    >
+                      Verzenden
+                    </Label>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ─ Photo upload (1–10) ─ */}
+            <div className="space-y-2">
+              <Label className="text-sm">
+                Foto&apos;s (optioneel, max 10)
+              </Label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
+                <ImageIcon className="text-primary" />
+                {files.length > 0
+                  ? `${files.length} geselecteerd`
+                  : "Upload foto's"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.files ?? []);
+                    setFiles((prev) =>
+                      [...prev, ...selected].slice(0, 10),
+                    );
+                  }}
+                />
+              </label>
+              {files.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {files.map((f, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 rounded bg-muted px-2 py-1 text-xs"
+                    >
+                      {f.name}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFiles((prev) => prev.filter((_, j) => j !== i))
+                        }
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label="Remove"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </CardContent>
 
           <CardFooter className="justify-end">
