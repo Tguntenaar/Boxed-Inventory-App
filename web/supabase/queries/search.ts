@@ -11,6 +11,7 @@ export const searchItems = async (
   if (queryText) qb = qb.ilike("name", `%${queryText}%`);
   if (filters.typeIds?.length) qb = qb.in("type_id", filters.typeIds);
   if (filters.boxIds?.length) qb = qb.in("box_id", filters.boxIds);
+  if (filters.forSale === true) qb = qb.eq("for_sale", true);
 
   if (filters.location) {
     // first fetch box IDs matching that location

@@ -54,6 +54,8 @@ export const itemSchema = z.object({
   last_used: z.string().nullable().optional(),
   condition: z.string().nullable().optional(),
   value: z.number().nullable().optional(),
+  for_sale: z.boolean().nullable().optional(),
+  ad_description: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -64,6 +66,7 @@ export const searchFiltersSchema = z.object({
   typeIds: z.array(z.number()).optional(),
   boxIds: z.array(z.string()).optional(),
   location: z.string().optional(),
+  forSale: z.boolean().optional(),
 });
 export type SearchFilters = z.infer<typeof searchFiltersSchema>;
 

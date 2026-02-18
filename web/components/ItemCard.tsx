@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useSupabaseClient } from "@supabase/auth-helpers-react";
 import { Item, ItemType, Box } from "@/supabase/types";
+import { updateItem } from "@/supabase/queries/items";
 import {
   Image as ImageIcon,
   CalendarClock,
@@ -48,6 +49,14 @@ export default function ItemCard({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(item.name);
   const [qty, setQty] = useState(item.quantity);
+  const [value, setValue] = useState<string>(
+    item.value != null ? String(item.value) : ""
+  );
+  const [condition, setCondition] = useState(item.condition ?? "");
+  const [forSale, setForSale] = useState(item.for_sale ?? false);
+  const [adDescription, setAdDescription] = useState(
+    item.ad_description ?? ""
+  );
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -63,6 +72,10 @@ export default function ItemCard({
     if (open) {
       setName(currentItem.name);
       setQty(currentItem.quantity);
+      setValue(currentItem.value != null ? String(currentItem.value) : "");
+      setCondition(currentItem.condition ?? "");
+      setForSale(currentItem.for_sale ?? false);
+      setAdDescription(currentItem.ad_description ?? "");
       setFile(null);
     }
   }, [open, currentItem]);
@@ -85,25 +98,22 @@ export default function ItemCard({
       setUploading(false);
     }
 
-    const { error } = await supabase
-      .from("items")
-      .update({ name, quantity: qty, photo_url })
-      .eq("id", currentItem.id);
-
-    if (error) {
+    try {
+      const updated = await updateItem(currentItem.id, {
+        name,
+        quantity: qty,
+        photo_url,
+        value: value ? parseFloat(value) : null,
+        condition: condition.trim() || null,
+        for_sale: forSale,
+        ad_description: adDescription.trim() || null,
+      });
+      setCurrentItem(updated);
+      toast.success("Item updated.");
+      setOpen(false);
+    } catch {
       toast.error("Failed to save changes.");
-      return;
     }
-
-    // update local state so UI reflects changes immediately
-    setCurrentItem({
-      ...currentItem,
-      name,
-      quantity: qty,
-      photo_url,
-    });
-    toast.success("Item updated.");
-    setOpen(false);
   };
 
   const typeBadgeClass = type
@@ -116,6 +126,14 @@ export default function ItemCard({
 
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <span>Qty: {currentItem.quantity}</span>
+        {currentItem.value != null && (
+          <span>€{Number(currentItem.value).toFixed(2)}</span>
+        )}
+        {currentItem.for_sale && (
+          <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+            For sale
+          </span>
+        )}
         {currentItem.last_used && (
           <>
             <CalendarClock size={14} />
@@ -178,6 +196,55 @@ export default function ItemCard({
                   onChange={(e) => setQty(+e.target.value)}
                 />
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">Price (€)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    placeholder="Optional"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">Condition</label>
+                  <Input
+                    placeholder="e.g. As good as new"
+                    value={condition}
+                    onChange={(e) => setCondition(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="for-sale-edit"
+                  checked={forSale}
+                  onChange={(e) => setForSale(e.target.checked)}
+                  className="h-4 w-4 rounded border-input"
+                />
+                <label htmlFor="for-sale-edit" className="cursor-pointer text-sm">
+                  For sale (Marktplaats)
+                </label>
+              </div>
+
+              {forSale && (
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">
+                    Ad description (optional)
+                  </label>
+                  <textarea
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Text for your Marktplaats ad"
+                    value={adDescription}
+                    onChange={(e) => setAdDescription(e.target.value)}
+                  />
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="block text-sm font-medium">

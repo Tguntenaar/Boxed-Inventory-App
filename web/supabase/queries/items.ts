@@ -12,6 +12,20 @@ export const getItemsByBox = async (boxId: string): Promise<Item[]> => {
   return itemSchema.array().parse(data ?? []);
 };
 
+export const getItemsForSale = async (
+  boxIds: string[],
+): Promise<Item[]> => {
+  if (boxIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("items")
+    .select("*")
+    .in("box_id", boxIds)
+    .eq("for_sale", true)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return itemSchema.array().parse(data ?? []);
+};
+
 export const getItem = async (id: string): Promise<Item | null> => {
   const { data, error } = await supabase
     .from("items")

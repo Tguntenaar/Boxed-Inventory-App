@@ -35,6 +35,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { Label } from "@/components/ui/label";
 
 export interface AddItemCardProps {
   boxId: string;
@@ -54,6 +55,9 @@ export default function AddItemCard({ boxId, onItemAdded }: AddItemCardProps) {
   const [typeId, setTypeId] = useState<number | "">("");
   const [addingType, setAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
+  const [value, setValue] = useState<string>("");
+  const [condition, setCondition] = useState("");
+  const [forSale, setForSale] = useState(false);
 
   // load existing types
   useEffect(() => {
@@ -104,12 +108,18 @@ export default function AddItemCard({ boxId, onItemAdded }: AddItemCardProps) {
         quantity: qty,
         photo_url,
         type_id: typeId === "" ? undefined : typeId,
+        value: value ? parseFloat(value) : undefined,
+        condition: condition.trim() || undefined,
+        for_sale: forSale,
       });
       toast.success("Item added!");
       setName("");
       setQty(1);
       setFile(null);
       setTypeId("");
+      setValue("");
+      setCondition("");
+      setForSale(false);
       onItemAdded();
     } catch {
       toast.error("Failed to add item.");
@@ -227,6 +237,41 @@ export default function AddItemCard({ boxId, onItemAdded }: AddItemCardProps) {
                 onChange={(e) => setQty(+e.target.value)}
                 placeholder="Qty"
               />
+            </div>
+
+            {/* ─ Price, condition, for sale ─ */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-sm">Price (€)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  placeholder="Optional"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm">Condition</Label>
+                <Input
+                  placeholder="e.g. As good as new"
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="for-sale-add"
+                checked={forSale}
+                onChange={(e) => setForSale(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              <Label htmlFor="for-sale-add" className="cursor-pointer text-sm">
+                For sale (Marktplaats)
+              </Label>
             </div>
 
             {/* ─ Photo upload ─ */}

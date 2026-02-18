@@ -29,10 +29,12 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import BoxCard from "@/components/BoxCard";
 import ItemCard from "@/components/ItemCard";
-import { getBoxesByOwner } from "@/supabase/queries/boxes";
-import { getItemsByBox } from "@/supabase/queries/items";
+import { getBoxesByOwner, getAccessibleBoxes } from "@/supabase/queries/boxes";
+import {
+  getItemsByBox,
+  getItemsForSale,
+} from "@/supabase/queries/items";
 import { searchItems } from "@/supabase/queries/search";
-import { getAccessibleBoxes } from "@/supabase/queries/boxes";
 import type { Box, Item } from "@/supabase/types";
 import { Search, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
 import Head from "next/head";
@@ -82,6 +84,7 @@ export default function Dashboard() {
   const [results, setResults] = useState<Item[]>([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [searchOpen, setSearchOpen] = useState(true);
+  const [filterMode, setFilterMode] = useState<"all" | "for_sale">("all");
 
   const [exporting, setExporting] = useState(false);
 
@@ -140,19 +143,24 @@ export default function Dashboard() {
   const debounceRef = useRef<number>(0);
   useEffect(() => {
     clearTimeout(debounceRef.current);
-    if (!query.trim()) {
+    const boxIds = boxes?.map((b) => b.id) ?? [];
+    const shouldSearch = query.trim() || filterMode === "for_sale";
+    if (!shouldSearch || (filterMode === "for_sale" && boxes === null)) {
       setResults([]);
       setLoadingSearch(false);
       return;
     }
     setLoadingSearch(true);
     debounceRef.current = window.setTimeout(async () => {
-      const data = await searchItems(query.trim());
+      const data = await searchItems(query.trim(), {
+        forSale: filterMode === "for_sale" ? true : undefined,
+        boxIds: boxIds.length ? boxIds : undefined,
+      });
       setResults(data);
       setLoadingSearch(false);
     }, 300);
     return () => clearTimeout(debounceRef.current);
-  }, [query]);
+  }, [query, filterMode, boxes]);
 
   const exportCSV = async () => {
     setExporting(true);
@@ -172,6 +180,10 @@ export default function Dashboard() {
               item_id: it.id,
               item_name: it.name,
               item_quantity: it.quantity ?? 0,
+              item_value: it.value ?? "",
+              item_condition: it.condition ?? "",
+              item_for_sale: it.for_sale ?? false,
+              item_ad_description: it.ad_description ?? "",
               item_photo_url: it.photo_url ?? "",
             }),
           );
@@ -184,6 +196,10 @@ export default function Dashboard() {
             item_id: "",
             item_name: "",
             item_quantity: "",
+            item_value: "",
+            item_condition: "",
+            item_for_sale: "",
+            item_ad_description: "",
             item_photo_url: "",
           });
         }
@@ -197,6 +213,10 @@ export default function Dashboard() {
         "item_id",
         "item_name",
         "item_quantity",
+        "item_value",
+        "item_condition",
+        "item_for_sale",
+        "item_ad_description",
         "item_photo_url",
       ];
       const csv = [
@@ -215,6 +235,55 @@ export default function Dashboard() {
       URL.revokeObjectURL(url);
 
       toast.success("Export ready!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportMarktplaats = async () => {
+    setExporting(true);
+    try {
+      const accessibleBoxes = await getAccessibleBoxes(userId);
+      const boxIds = accessibleBoxes.map((b) => b.id);
+      const items = await getItemsForSale(boxIds);
+      const boxMap = new Map(accessibleBoxes.map((b) => [b.id, b]));
+
+      const header = [
+        "title",
+        "description",
+        "price",
+        "condition",
+        "photo_url",
+        "box_name",
+      ];
+      const rows = items.map((it) => ({
+        title: it.name,
+        description: it.ad_description ?? "",
+        price: it.value ?? "",
+        condition: it.condition ?? "",
+        photo_url: it.photo_url ?? "",
+        box_name: boxMap.get(it.box_id)?.name ?? "",
+      }));
+
+      const csv = [
+        header.join(","),
+        ...rows.map((r) =>
+          header.map((h) => `"${String(r[h as keyof typeof r]).replace(/"/g, '""')}"`).join(","),
+        ),
+      ].join("\n");
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "marktplaats_export.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast.success("Marktplaats export ready!");
     } catch (err) {
       console.error(err);
       toast.error("Export failed.");
@@ -249,12 +318,19 @@ export default function Dashboard() {
               !
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Link href="/boxes/new">
               <Button>Add Box</Button>
             </Link>
             <Button onClick={exportCSV} disabled={exporting} variant="outline">
               {exporting ? "Exporting..." : "Export CSV"}
+            </Button>
+            <Button
+              onClick={exportMarktplaats}
+              disabled={exporting}
+              variant="outline"
+            >
+              {exporting ? "Exporting..." : "Export for Marktplaats"}
             </Button>
           </div>
         </header>
@@ -274,11 +350,36 @@ export default function Dashboard() {
 
           {searchOpen && (
             <CardContent className="space-y-3">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-md border border-input">
+                  <button
+                    type="button"
+                    onClick={() => setFilterMode("all")}
+                    className={`px-3 py-1.5 text-sm font-medium transition ${
+                      filterMode === "all"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background text-muted-foreground hover:text-foreground"
+                    } rounded-l-md`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterMode("for_sale")}
+                    className={`px-3 py-1.5 text-sm font-medium transition ${
+                      filterMode === "for_sale"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background text-muted-foreground hover:text-foreground"
+                    } rounded-r-md`}
+                  >
+                    For sale
+                  </button>
+                </div>
                 <Input
                   placeholder="Search by item name..."
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  className="flex-1 min-w-[200px]"
                 />
                 <Button disabled>
                   <Search size={16} className="mr-1" />
@@ -305,10 +406,12 @@ export default function Dashboard() {
               )}
 
               {!loadingSearch &&
-                query.trim() !== "" &&
+                (query.trim() !== "" || filterMode === "for_sale") &&
                 results.length === 0 && (
                   <p className="mt-4 text-center text-muted-foreground">
-                    No results found for “{query.trim()}”.
+                    {filterMode === "for_sale"
+                      ? "No items for sale."
+                      : `No results found for "${query.trim()}".`}
                   </p>
                 )}
             </CardContent>
